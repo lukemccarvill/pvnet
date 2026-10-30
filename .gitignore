@@ -162,3 +162,10 @@ dmypy.json
 
 # uv
 uv.lock
+Luke/data/to_gitignore/MSG4-SEVI-MSG15-0100-NA-20240101120417/EOPMetadata.xml
+.gitignore
+Luke/data/to_gitignore/MSG4-SEVI-MSG15-0100-NA-20240101120417/MSG4-SEVI-MSG15-0100-NA-20240101120417.851000000Z-NA.nat
+Luke/data/to_gitignore/MSG4-SEVI-MSG15-0100-NA-20240101120417/manifest.xml
+Luke/data/satellite
+Luke/data/to_gitignore
+

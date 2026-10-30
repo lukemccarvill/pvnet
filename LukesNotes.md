@@ -9,4 +9,4 @@ Notes:
 - then activate it: source .venv/bin/activate
 - to get dependencies: uv sync
 - uv run pytest
-- 
+- switching to writing my notes in Notion
