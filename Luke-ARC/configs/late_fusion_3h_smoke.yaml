@@ -1,0 +1,143 @@
+# Luke edited on 23 Oct, commenting out ECMWF NWP and making simplifying changes for a smoke test
+  # reduced forecast to 180 mins
+  # no ECMWF
+  # reduced a few hyperparameters
+
+_target_: pvnet.training.lightning_module.PVNetLightningModule
+
+model:
+  _target_: pvnet.models.LateFusionModel
+  # output_quantiles: [0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98]
+  output_quantiles: [0.1, 0.5, 0.9] # Luke's edits
+
+  #--------------------------------------------
+  # NWP encoder
+  #--------------------------------------------
+
+  nwp_encoders_dict:
+    ukv:
+      _target_: pvnet.models.late_fusion.encoders.encoders3d.DefaultPVNet
+      _partial_: True
+      # in_channels: 2
+      in_channels: 17 #Luke - I'm not sure why this was 2 before? in `configs.example/datamodule/configuration/example_configuration.yaml` there are clearly 17 channels
+                      # but interestingly, they had the ecmwf data set to 12 channels... I also don't know which 2 it would have chosen of the 17
+      # out_features: 256
+      out_features: 128 # Luke
+      # number_of_conv3d_layers: 6
+      number_of_conv3d_layers: 3 # Luke
+      # conv3d_channels: 32
+      conv3d_channels: 16 # Luke
+      image_size_pixels: 24
+    # ecmwf:
+    #   _target_: pvnet.models.late_fusion.encoders.encoders3d.DefaultPVNet
+    #   _partial_: True
+    #   in_channels: 12
+    #   out_features: 256
+    #   number_of_conv3d_layers: 4
+    #   conv3d_channels: 32
+    #   image_size_pixels: 12
+
+  #--------------------------------------------
+  # Sat encoder settings
+  #--------------------------------------------
+
+  sat_encoder:
+    _target_: pvnet.models.late_fusion.encoders.encoders3d.DefaultPVNet
+    _partial_: True
+    in_channels: 11
+    # out_features: 256
+    # number_of_conv3d_layers: 6
+    # conv3d_channels: 32
+    out_features: 128 # Luke
+    number_of_conv3d_layers: 3 # Luke
+    conv3d_channels: 16 # Luke
+    image_size_pixels: 24
+
+  add_image_embedding_channel: False
+
+  #--------------------------------------------
+  # PV encoder settings
+  #--------------------------------------------
+
+  # pv_encoder:
+  #   _target_: pvnet.models.late_fusion.site_encoders.encoders.SingleAttentionNetwork
+  #   _partial_: True
+  #   num_sites: 349
+  #   out_features: 40
+  #   num_heads: 4
+  #   kdim: 40
+  #   id_embed_dim: 20
+
+  pv_encoder: null # Luke not using recent PV at inference, initially at least
+
+  #--------------------------------------------
+  # Tabular network settings
+  #--------------------------------------------
+
+  output_network:
+    _target_: pvnet.models.late_fusion.linear_networks.networks.ResFCNet
+    _partial_: True
+    fc_hidden_features: 128
+    n_res_blocks: 6
+    res_block_layers: 2
+    dropout_frac: 0.0
+
+  embedding_dim: 16
+  include_sun: True
+  include_generation_history: False # I'm not sure what this is, esp in comparison to the pv_encoder? It was already False though.
+  # Apparently it is a lighter-weight version of the pv_encoder; slattens recent gen history, apends as tabular features rather than a dedicated encoder
+  t0_embedding_dim: 3
+  include_time: False # so this wasn't here at all before, I guess because the default value is already False. But it could be interesting to add later.
+      # I guess it does sine/cosine of datetime trends as additional inputs to the network
+
+  # The mapping between the location IDs and their embedding indices
+  location_id_mapping:
+    1: 1
+    5: 2
+    110: 3
+  # ...
+  #Luke - I'm not sure what the heck is going on here with these location_id_mapping values. 
+  # I wonder if these are the three GSP regions shown in the map in their paper...
+  
+
+  #--------------------------------------------
+  # Times
+  #--------------------------------------------
+
+  # Foreast and time settings
+  # forecast_minutes: 480
+  # history_minutes: 120
+
+  forecast_minutes: 180 #Luke
+  history_minutes: 120 #Luke
+
+  min_sat_delay_minutes: 60
+
+  # These must also be set even if identical to forecast_minutes and  history_minutes
+  sat_history_minutes: 90
+  pv_history_minutes: 180
+
+  # These must be set for each NWP encoder
+  nwp_history_minutes:
+    ukv: 120
+    # ecmwf: 120 #Luke notused
+  nwp_forecast_minutes:
+    # ukv: 480
+    ukv: 120 #Luke
+    # ecmwf: 480
+  # Optional; defaults to 60, so must be set for data with different time resolution
+  nwp_interval_minutes:
+    ukv: 60
+    # ecmwf: 60
+
+# ----------------------------------------------
+# Optimizer
+# ----------------------------------------------
+optimizer:
+  _target_: pvnet.optimizers.EmbAdamWReduceLROnPlateau
+  lr: 0.0001
+  weight_decay: 0.01
+  amsgrad: True
+  patience: 5
+  factor: 0.1
+  threshold: 0.002

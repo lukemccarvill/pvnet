@@ -1,6 +1,8 @@
 # Custom
 config_tree.txt
 configs/
+!Luke-ARC/configs/
+!Luke-ARC/configs/**
 lightning_logs/
 logs/
 output/
