@@ -101,7 +101,39 @@ tail -f pvnet-ukv-week-<job-id>.out
 sacct -j <job-id> --format=JobID,State,Elapsed,ExitCode
 ```
 
-When it completes, verify that the final Zarr exists under `$PVNET_DATA_ROOT`. Then proceed with the notebook's satellite preparation and alignment/training checks. Do not run the notebook's UKV download cell as well; it would target the same outputs.
+When it completes, verify that the final Zarr exists under `$PVNET_DATA_ROOT`. Do not run the notebook's UKV download cell as well; it would target the same outputs.
+
+## Stage the June 2020 satellite week on HTC
+
+`stage_satellite_week.py` is the batch version of the notebook's satellite staging cell. It reads the public 2020 non-HRV archive anonymously, keeps the required 5-minute scans for June 20 23:30 through June 27 23:30 UTC, crops 11 configured channels to the same 24×24 GSP 199 grid, and writes:
+
+```text
+$PVNET_DATA_ROOT/public_bucket_diagnostic/satellite_gsp199_20200621_week_public_sampler.zarr
+```
+
+The eight missing scans found by the section 5a audit remain gaps; the worker does not fill or interpolate them. It saves 60-frame checkpoint Zarrs under `satellite_gsp199_20200621_week_parts/`, validates and reuses finished batches after interruption, and removes only incomplete `.staging` stores before retrying. It checks that the output has the expected time coordinate, channel count, crop size, and—if available—the same spatial grid as the previously validated GSP 199 sample. This is a public bucket, so **no gcloud or CEDA token is needed**. The HTC `medium` batch job requests up to 24 hours and no GPU.
+
+Submit from the PVNet repository on an HTC login node. The notebook kernel previously reported `nx-tsn01` with no `SLURM_JOB_ID`; do not run this multi-batch archive read in that NoMachine kernel.
+
+```bash
+cd "$HOME/src/PVNet"
+module load Python/3.12.3-GCCcore-13.3.0
+export PVNET_DATA_ROOT="$DATA/pvnet"
+export PVNET_VENV="$PVNET_DATA_ROOT/venvs/pvnet-smoke"
+sbatch --export=ALL Luke-ARC/stage_satellite_week.sbatch
+```
+
+Check progress and completion using the job ID printed by `sbatch`:
+
+```bash
+squeue -j <job-id>
+tail -f pvnet-sat-week-<job-id>.out
+sacct -j <job-id> --format=JobID,State,Elapsed,ExitCode
+find "$PVNET_DATA_ROOT/public_bucket_diagnostic/satellite_gsp199_20200621_week_parts" \
+  -maxdepth 1 -type d -name 'batch_*.zarr' | wc -l
+```
+
+Expect 34 batch checkpoints and a final log line reporting a validated `(2009, 11, 24, 24)` satellite store. After the job completes, return to the notebook and continue at section 9 (dataset alignment and coverage); section 7 has already produced the PV_Live store. Do not run the notebook's satellite staging cell as well.
 
 ## Storage and transfer
 
