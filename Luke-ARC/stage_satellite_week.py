@@ -42,20 +42,34 @@ CHANNEL_COUNT = 11
 BATCH_SIZE = 60
 
 
-def validate_part(part_store: Path, expected_times: pd.DatetimeIndex) -> None:
+def validate_part(part_store: Path, expected_times: pd.DatetimeIndex) -> bool:
+    """Return False only for the known pre-fix (time, y, x, channel) layout."""
     part = xr.open_zarr(part_store, consolidated=True)
     try:
         part_times = pd.DatetimeIndex(pd.to_datetime(part.time.values))
         expected_shape = (len(expected_times), CHANNEL_COUNT, IMAGE_SIZE, IMAGE_SIZE)
-        if (
-            part.sizes.get("time") != len(expected_times)
-            or not part_times.equals(expected_times)
-            or part["satellite_actual"].shape != expected_shape
-        ):
+        if not part_times.equals(expected_times):
             raise ValueError(
-                f"Satellite checkpoint is incomplete or mismatched: {part_store}; "
-                f"got shape={part['satellite_actual'].shape}, expected={expected_shape}."
+                f"Satellite checkpoint has unexpected timestamps: {part_store}. "
+                "Inspect it before removing or replacing it."
             )
+        variable = part["satellite_actual"]
+        if variable.shape == expected_shape and tuple(variable.dims) == (
+            "time", "variable", "x_geostationary", "y_geostationary"
+        ):
+            return True
+        old_shape = (len(expected_times), IMAGE_SIZE, IMAGE_SIZE, CHANNEL_COUNT)
+        old_channel_last = (
+            variable.dims[0] == "time"
+            and variable.dims[-1] == "variable"
+            and set(variable.dims[1:-1]) == {"x_geostationary", "y_geostationary"}
+        )
+        if variable.shape == old_shape and old_channel_last:
+            return False
+        raise ValueError(
+            f"Satellite checkpoint has an unrecognized layout: {part_store}; "
+            f"got dims={variable.dims}, shape={variable.shape}."
+        )
     finally:
         part.close()
 
@@ -163,14 +177,24 @@ def main() -> None:
             part_store = parts_dir / f"batch_{batch_number:03d}.zarr"
             staging_store = Path(str(part_store) + ".staging")
             if part_store.exists():
-                validate_part(part_store, batch_times)
-                print(f"[{batch_number}/{len(batches)}] Reusing {part_store.name}", flush=True)
-                continue
+                if validate_part(part_store, batch_times):
+                    print(f"[{batch_number}/{len(batches)}] Reusing {part_store.name}", flush=True)
+                    continue
+                print(
+                    f"[{batch_number}/{len(batches)}] Replacing checkpoint with the old channel-last layout: "
+                    f"{part_store.name}",
+                    flush=True,
+                )
+                shutil.rmtree(part_store)
             if staging_store.exists():
                 print(f"[{batch_number}/{len(batches)}] Removing incomplete checkpoint {staging_store.name}", flush=True)
                 shutil.rmtree(staging_store)
 
-            batch_da = spatial_da.sel(time_utc=batch_times.values).load()
+            batch_da = (
+                spatial_da.sel(time_utc=batch_times.values)
+                .transpose("time_utc", "channel", "x_geostationary", "y_geostationary")
+                .load()
+            )
             batch_ds = batch_da.rename({"time_utc": "time", "channel": "variable"}).to_dataset(
                 name="satellite_actual"
             )
@@ -191,7 +215,8 @@ def main() -> None:
             finally:
                 batch_ds.close()
             staging_store.rename(part_store)
-            validate_part(part_store, batch_times)
+            if not validate_part(part_store, batch_times):
+                raise RuntimeError(f"Newly written checkpoint has the obsolete axis order: {part_store}")
             print(
                 f"[{batch_number}/{len(batches)}] Saved {len(batch_times)} scans through "
                 f"{batch_times[-1]} UTC",
