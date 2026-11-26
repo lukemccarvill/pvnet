@@ -69,6 +69,40 @@ For training on an allocated HTC GPU, set `PVNET_ACCELERATOR=gpu` in the environ
 
 The first one-week data-preparation run may take longer than an interactive allocation. We should use notebook cells for exploration, coverage checks, and plots, then move long or restartable downloads and training into Python entry points submitted with `sbatch` before scaling to two years and ten GSPs. The notebook remains the readable workflow and diagnostic record; scripts will make long jobs restartable and scheduler-friendly.
 
+## Prepare the June 2020 UKV week on HTC
+
+`prepare_ukv_week.py` is the batch version of the notebook's UKV week-download/crop cell. It reads the checked-in sampler/model configs and the verified pilot GRIB, downloads the 56 required forecast cycles (Wholesale 1 and 2; 112 GRIBs total), crops all 17 channels to the GSP 199 24×24 grid, and writes the sampler Zarr to:
+
+```text
+$PVNET_DATA_ROOT/public_bucket_diagnostic/ukv_gsp199_20200621_week_sampler.zarr
+```
+
+It checkpoints each cycle as a compressed NetCDF crop, resumes from those crops and `.part` downloads after interruption, and deletes each raw GRIB only after its crop succeeds. The estimated source transfer is about 28 GB. The job uses HTC's `medium` partition for up to 24 hours and needs no GPU. A rerun after interruption reuses completed cycle crops and removes an incomplete temporary Zarr before rebuilding it from the crops. The script refuses to overwrite an existing final Zarr.
+
+From the repository root on an HTC login node, load the same Python module used for the environment and set persistent paths. Pass the CEDA token through the environment without placing it in shell history or a script:
+
+```bash
+cd "$HOME/src/PVNet"
+module load Python/3.12.3-GCCcore-13.3.0
+export PVNET_DATA_ROOT="$DATA/pvnet"
+export PVNET_VENV="$PVNET_DATA_ROOT/venvs/pvnet-smoke"
+read -r -s -p "CEDA bearer token: " CEDA_TOKEN
+printf '\n'
+export CEDA_TOKEN
+sbatch --export=ALL Luke-ARC/prepare_ukv_week.sbatch
+unset CEDA_TOKEN
+```
+
+Monitor the job and read its log with:
+
+```bash
+squeue -u "$USER"
+tail -f pvnet-ukv-week-<job-id>.out
+sacct -j <job-id> --format=JobID,State,Elapsed,ExitCode
+```
+
+When it completes, verify that the final Zarr exists under `$PVNET_DATA_ROOT`. Then proceed with the notebook's satellite preparation and alignment/training checks. Do not run the notebook's UKV download cell as well; it would target the same outputs.
+
 ## Storage and transfer
 
 - Keep source code in the Git checkout; keep persistent datasets, crops, logs, and checkpoints under `$DATA`.
