@@ -135,6 +135,22 @@ find "$PVNET_DATA_ROOT/public_bucket_diagnostic/satellite_gsp199_20200621_week_p
 
 Expect 34 batch checkpoints and a final log line reporting a validated `(2009, 11, 24, 24)` satellite store. After the job completes, return to the notebook and continue at section 9 (dataset alignment and coverage); section 7 has already produced the PV_Live store. Do not run the notebook's satellite staging cell as well.
 
+## Validate the week inputs and run the training smoke test on HTC
+
+`run_2020_week_smoke.py` reproduces notebook sections 9 and 10 without depending on notebook kernel state. It verifies the final satellite, UKV, and PV_Live stores; recomputes OCF's satellite-continuity sample starts and the 80/20 chronological split; purges train origins whose 3-hour target reaches the validation boundary; configures `PVNetDataModule`; checks a real multimodal batch against the model config; and runs three CPU epochs. It requires the audited counts (259 train, 66 validation, 8 satellite-gap starts dropped, 6 starts purged) and writes a timestamped metrics JSON under `public_bucket_diagnostic/`. It saves no model checkpoint. This is a pipeline smoke test, not a forecast-skill evaluation.
+
+Submit this after the satellite staging job succeeds, from the HTC login node:
+
+```bash
+cd "$HOME/src/PVNet"
+module load Python/3.12.3-GCCcore-13.3.0
+export PVNET_DATA_ROOT="$DATA/pvnet"
+export PVNET_VENV="$PVNET_DATA_ROOT/venvs/pvnet-smoke"
+sbatch --export=ALL Luke-ARC/run_2020_week_smoke.sbatch
+```
+
+Check the job with `squeue -j <job-id>`, `tail -n 40 pvnet-week-smoke-<job-id>.out`, and `sacct -j <job-id> --format=JobID,State,Elapsed,ExitCode`. The job uses HTC's `medium` partition, four CPU cores, 32 GB memory, and no GPU. Review the batch log and metrics JSON before treating the smoke test as complete. Notebook sections 9 and 10 remain useful for interactive inspection, but run them only from an HTC compute allocation—not the `nx-tsn01` kernel.
+
 ## Storage and transfer
 
 - Keep source code in the Git checkout; keep persistent datasets, crops, logs, and checkpoints under `$DATA`.
